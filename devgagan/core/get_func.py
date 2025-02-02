@@ -47,6 +47,9 @@ async def fetch_upload_method(user_id):
 async def get_msg(userbot, sender, edit_id, msg_link, i, message):
     edit = ""
     progress_message = None
+    # This flag will indicate if an upload was successful
+    upload_success = False  
+    file = ""  # Ensure file is defined in outer scope.
     try:
         # Remove extra query parameters if present
         if "?single" in msg_link:
@@ -67,7 +70,6 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                                             "Sorry! dude 😎 This channel is protected 🔐 by **__Crushe__**")
                 return
 
-        file = ""
         size_limit = 2 * 1024 * 1024 * 1024  # 2GB limit
         chatx = message.chat.id
 
@@ -100,6 +102,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     await devgaganin.pin()
             await devgaganin.copy(LOG_GROUP)
             await edit.delete()
+            # No file downloaded here; nothing to delete.
             return
 
         if not msg.media and msg.text:
@@ -228,11 +231,13 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                             thumb=thumb_path
                         )
                         await progress_message.delete()
+                    # Mark as successful upload
+                    upload_success = True
                 except Exception as e:
                     print(f"Error while sending huge video file: {e}")
                 finally:
                     await edit.delete()
-                    os.remove(file)
+                    # For huge video branch, file deletion is handled below in the final block.
                     return
             else:
                 if upload_method == "Pyrogram":
@@ -273,6 +278,8 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                         thumb=thumb_path
                     )
                     await progress_message.delete()
+                # Mark as successful upload
+                upload_success = True
 
         # Case 2: Photo
         elif msg.photo:
@@ -288,16 +295,19 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                 except Exception:
                     await devgaganin.pin()
             await devgaganin.copy(LOG_GROUP)
+            upload_success = True
 
         # Case 3: Voice
         elif msg.voice:
             result = await app.send_voice(target_chat_id, file)
             await result.copy(LOG_GROUP)
+            upload_success = True
 
         # Case 4: Audio
         elif msg.audio:
             result = await app.send_audio(target_chat_id, file, caption=caption)
             await result.copy(LOG_GROUP)
+            upload_success = True
 
         # Case 5: Document (generic file)
         elif msg.document:
@@ -334,6 +344,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     thumb=thumb_path
                 )
                 await progress_message.delete()
+            upload_success = True
 
         # Fallback: if none of the above media types match, send as a document.
         else:
@@ -369,19 +380,22 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     thumb=thumb_path
                 )
                 await progress_message.delete()
+            upload_success = True
 
         await edit.delete()
         if progress_message:
             await progress_message.delete()
 
-    except (ChannelBanned, ChannelInvalid, ChannelPrivate, ChatIdInvalid, ChatInvalid):
-            await app.edit_message_text(sender, edit_id, "Have you joined the channel?")
-            return
-    except Exception as e:
-            print(f"Errrrror {e}")
-            await edit.delete()
-            # await app.edit_message_text(sender, edit_id, f'Failed to save: `{msg_link}`\n\nError: {str(e)}')       
+        # Optionally, if no file was downloaded (e.g., text or sticker) file will be empty.
+        # Otherwise, if upload_success is True, the file will be removed in the final block.
         
+    except (ChannelBanned, ChannelInvalid, ChannelPrivate, ChatIdInvalid, ChatInvalid):
+        await app.edit_message_text(sender, edit_id, "Have you joined the channel?")
+        return
+    except Exception as e:
+        print(f"Errrrror {e}")
+        await edit.delete()
+        # await app.edit_message_text(sender, edit_id, f'Failed to save: `{msg_link}`\n\nError: {str(e)}')       
     else:
         edit = await app.edit_message_text(sender, edit_id, "Cloning...")
         try:
@@ -390,6 +404,15 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
             await edit.delete()
         except Exception as e:
             await app.edit_message_text(sender, edit_id, f'Failed to save: `{msg_link}`\n\nError: {str(e)}')
+    finally:
+        # Delete the file from disk if it exists and was successfully uploaded.
+        if upload_success and file and os.path.exists(file):
+            try:
+                os.remove(file)
+                print(f"Deleted file: {file}")
+            except Exception as e:
+                print(f"Error deleting file {file}: {e}")
+
 async def copy_message_with_chat_id(client, sender, chat_id, message_id):
     # Get the user's set chat ID, if available; otherwise, use the original sender ID
     target_chat_id = user_chat_ids.get(sender, sender)
